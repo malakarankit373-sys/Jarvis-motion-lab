@@ -110,11 +110,10 @@ let currentAction = null;
 let retargetedClip = null;
 let looping = true;
 
-/* export/verify state */
 let lastExportBlobUrl = null;
 let verifyScene = null;
 let verifyMixer = null;
-let viewMode = 'live'; // 'live' | 'verify'
+let viewMode = 'live';
 
 const DEFAULT_CAM_POS = new THREE.Vector3(0, 1.3, 3.2);
 const DEFAULT_CAM_TARGET = new THREE.Vector3(0, 1.0, 0);
@@ -188,7 +187,7 @@ function animate(){
   }
 }
 
-/* ---------- VRM loading (UNCHANGED) ---------- */
+/* ---------- VRM loading ---------- */
 const vrmInput = document.getElementById('vrmInput');
 vrmInput.addEventListener('change', (e) => {
   const file = e.target.files[0];
@@ -253,7 +252,7 @@ function loadVRMFile(file){
   );
 }
 
-/* ---------- FBX loading (UNCHANGED) ---------- */
+/* ---------- FBX loading ---------- */
 const fbxInput = document.getElementById('fbxInput');
 fbxInput.addEventListener('change', (e) => {
   const file = e.target.files[0];
@@ -281,6 +280,273 @@ function loadFBXFile(file){
         updateRetargetButton();
         URL.revokeObjectURL(url);
       }catch(err){
+        log('FBX POST-PROCESS ERROR: ' + err.message, true);
+        URL.revokeObjectURL(url);
+      }
+    },
+    (progress) => {
+      if (progress.total){
+        const pct = Math.round((progress.loaded/progress.total)*100);
+        log('FBX downloading… ' + pct + '%');
+      }
+    },
+    (err) => {
+      log('FBX LOAD FAILED: ' + (err?.message || err), true);
+      URL.revokeObjectURL(url);
+    }
+  );
+}
+
+function updateRetargetButton(){
+  document.getElementById('retargetBtn').disabled = !(currentVrm && currentFbxAsset && currentFbxAsset.animations?.length);
+}
+
+/* ---------- Mixamo -> VRM humanoid bone map ---------- */
+const mixamoVRMRigMap = {
+  mixamorigHips: 'hips',
+  mixamorigSpine: 'spine',
+  mixamorigSpine1: 'chest',
+  mixamorigSpine2: 'upperChest',
+  mixamorigNeck: 'neck',
+  mixamorigHead: 'head',
+  mixamorigLeftShoulder: 'leftShoulder',
+  mixamorigLeftArm: 'leftUpperArm',
+  mixamorigLeftForeArm: 'leftLowerArm',
+  mixamorigLeftHand: 'leftHand',
+  mixamorigLeftHandThumb1: 'leftThumbMetacarpal',
+  mixamorigLeftHandThumb2: 'leftThumbProximal',
+  mixamorigLeftHandThumb3: 'leftThumbDistal',
+  mixamorigLeftHandIndex1: 'leftIndexProximal',
+  mixamorigLeftHandIndex2: 'leftIndexIntermediate',
+  mixamorigLeftHandIndex3: 'leftIndexDistal',
+  mixamorigLeftHandMiddle1: 'leftMiddleProximal',
+  mixamorigLeftHandMiddle2: 'leftMiddleIntermediate',
+  mixamorigLeftHandMiddle3: 'leftMiddleDistal',
+  mixamorigLeftHandRing1: 'leftRingProximal',
+  mixamorigLeftHandRing2: 'leftRingIntermediate',
+  mixamorigLeftHandRing3: 'leftRingDistal',
+  mixamorigLeftHandPinky1: 'leftLittleProximal',
+  mixamorigLeftHandPinky2: 'leftLittleIntermediate',
+  mixamorigLeftHandPinky3: 'leftLittleDistal',
+  mixamorigRightShoulder: 'rightShoulder',
+  mixamorigRightArm: 'rightUpperArm',
+  mixamorigRightForeArm: 'rightLowerArm',
+  mixamorigRightHand: 'rightHand',
+  mixamorigRightHandThumb1: 'rightThumbMetacarpal',
+  mixamorigRightHandThumb2: 'rightThumbProximal',
+  mixamorigRightHandThumb3: 'rightThumbDistal',
+  mixamorigRightHandIndex1: 'rightIndexProximal',
+  mixamorigRightHandIndex2: 'rightIndexIntermediate',
+  mixamorigRightHandIndex3: 'rightIndexDistal',
+  mixamorigRightHandMiddle1: 'rightMiddleProximal',
+  mixamorigRightHandMiddle2: 'rightMiddleIntermediate',
+  mixamorigRightHandMiddle3: 'rightMiddleDistal',
+  mixamorigRightHandRing1: 'rightRingProximal',
+  mixamorigRightHandRing2: 'rightRingIntermediate',
+  mixamorigRightHandRing3: 'rightRingDistal',
+  mixamorigRightHandPinky1: 'rightLittleProximal',
+  mixamorigRightHandPinky2: 'rightLittleIntermediate',
+  mixamorigRightHandPinky3: 'rightLittleDistal',
+  mixamorigLeftUpLeg: 'leftUpperLeg',
+  mixamorigLeftLeg: 'leftLowerLeg',
+  mixamorigLeftFoot: 'leftFoot',
+  mixamorigLeftToeBase: 'leftToes',
+  mixamorigRightUpLeg: 'rightUpperLeg',
+  mixamorigRightLeg: 'rightLowerLeg',
+  mixamorigRightFoot: 'rightFoot',
+  mixamorigRightToeBase: 'rightToes',
+};
+
+/* ---------- Retargeting ---------- */
+function retargetMixamoToVRM(fbxAsset, vrm){
+  const srcClip = THREE.AnimationClip.findByName(fbxAsset.animations, 'mixamo.com')
+    || fbxAsset.animations[0];
+  if (!srcClip) throw new Error('No animation clip found in FBX.');
+
+  const tracks = [];
+  const restRotInv = new THREE.Quaternion();
+  const parentRestRot = new THREE.Quaternion();
+  const quatTmp = new THREE.Quaternion();
+  const vecTmp = new THREE.Vector3();
+
+  const hipsNode = fbxAsset.getObjectByName('mixamorigHips');
+  if (!hipsNode) throw new Error('Could not find mixamorigHips in FBX — is this a Mixamo-exported file?');
+  const motionHipsHeight = hipsNode.position.y;
+
+  const vrmHipsBone = vrm.humanoid?.getNormalizedBoneNode('hips');
+  if (!vrmHipsBone) throw new Error('VRM has no humanoid hips bone — is this a valid humanoid VRM?');
+  const vrmHipsY = vrmHipsBone.getWorldPosition(vecTmp).y;
+  const vrmRootY = vrm.scene.getWorldPosition(vecTmp).y;
+  const vrmHipsHeight = Math.abs(vrmHipsY - vrmRootY) || 1;
+  const hipsPosScale = vrmHipsHeight / (motionHipsHeight || 1);
+
+  const isVrm0 = vrm.meta?.metaVersion === '0';
+  let matchedTracks = 0;
+
+  srcClip.tracks.forEach((track) => {
+    const rawName = track.name.split('.')[0].split('/').pop();
+    const vrmBoneName = mixamoVRMRigMap[rawName];
+    if (!vrmBoneName) return;
+
+    const vrmBoneNode = vrm.humanoid?.getNormalizedBoneNode(vrmBoneName);
+    const mixamoNode = fbxAsset.getObjectByName(rawName);
+    if (!vrmBoneNode || !mixamoNode) return;
+
+    const targetName = vrmBoneNode.name;
+
+    mixamoNode.getWorldQuaternion(restRotInv).invert();
+    mixamoNode.parent.getWorldQuaternion(parentRestRot);
+
+    if (track instanceof THREE.QuaternionKeyframeTrack){
+      const values = track.values.slice();
+      for (let i = 0; i < values.length; i += 4){
+        quatTmp.fromArray(values, i);
+        quatTmp.premultiply(parentRestRot).multiply(restRotInv);
+        quatTmp.toArray(values, i);
+      }
+      const finalValues = values.map((v, i) => (isVrm0 && i % 2 === 0 ? -v : v));
+      tracks.push(new THREE.QuaternionKeyframeTrack(`${targetName}.quaternion`, track.times, finalValues));
+      matchedTracks++;
+    } else if (track instanceof THREE.VectorKeyframeTrack && rawName === 'mixamorigHips'){
+      const values = track.values.map((v, i) => (isVrm0 && i % 3 !== 1 ? -v : v) * hipsPosScale);
+      tracks.push(new THREE.VectorKeyframeTrack(`${targetName}.position`, track.times, values));
+      matchedTracks++;
+    }
+  });
+
+  if (matchedTracks === 0){
+    throw new Error('Retargeting produced 0 matched bone tracks — bone names in this FBX may not follow standard Mixamo naming.');
+  }
+
+  return new THREE.AnimationClip('retargeted', srcClip.duration, tracks);
+}
+
+document.getElementById('retargetBtn').addEventListener('click', () => {
+  try{
+    log('Retargeting animation onto VRM humanoid bones…');
+    retargetedClip = retargetMixamoToVRM(currentFbxAsset, currentVrm);
+    mixer = new THREE.AnimationMixer(currentVrm.scene);
+    currentAction = mixer.clipAction(retargetedClip);
+    currentAction.setLoop(looping ? THREE.LoopRepeat : THREE.LoopOnce, Infinity);
+    currentAction.clampWhenFinished = !looping;
+    currentAction.play();
+    setPlaybackControlsEnabled(true);
+    setExportControlsEnabled(true);
+    log(`RETARGET OK. Clip length ${retargetedClip.duration.toFixed(2)}s, ${retargetedClip.tracks.length} tracks. Playing.`);
+  }catch(err){
+    log('RETARGET FAILED: ' + err.message, true);
+  }
+});
+
+/* ---------- playback controls ---------- */
+function setPlaybackControlsEnabled(on){
+  ['playBtn','pauseBtn','restartBtn','speedSel','loopBtn'].forEach(id => {
+    document.getElementById(id).disabled = !on;
+  });
+}
+
+document.getElementById('playBtn').addEventListener('click', () => {
+  if (!currentAction) return;
+  currentAction.paused = false;
+  if (!currentAction.isRunning()) currentAction.play();
+  log('Playback resumed.');
+});
+
+document.getElementById('pauseBtn').addEventListener('click', () => {
+  if (!currentAction) return;
+  currentAction.paused = true;
+  log('Playback paused.');
+});
+
+document.getElementById('restartBtn').addEventListener('click', () => {
+  if (!currentAction) return;
+  currentAction.reset().play();
+  currentAction.paused = false;
+  log('Playback restarted.');
+});
+
+document.getElementById('speedSel').addEventListener('change', (e) => {
+  if (!mixer) return;
+  const speed = parseFloat(e.target.value);
+  mixer.timeScale = speed;
+  log('Speed set to ' + speed + 'x');
+});
+
+document.getElementById('loopBtn').addEventListener('click', (e) => {
+  looping = !looping;
+  e.target.textContent = 'LOOP: ' + (looping ? 'ON' : 'OFF');
+  if (currentAction){
+    currentAction.setLoop(looping ? THREE.LoopRepeat : THREE.LoopOnce, Infinity);
+    currentAction.clampWhenFinished = !looping;
+  }
+  log('Loop ' + (looping ? 'enabled' : 'disabled'));
+});
+
+/* ================================================================ */
+/* ================  EXPORT / BAKE / VERIFY  ======================= */
+/* ================================================================ */
+
+function setExportControlsEnabled(on){
+  document.getElementById('exportBtn').disabled = !on;
+}
+
+function bakeToRawSkeleton(vrm, clip, fps = 30){
+  const duration = clip.duration;
+  const frameCount = Math.max(2, Math.ceil(duration * fps) + 1);
+  const times = [];
+  for (let i = 0; i < frameCount; i++) times.push(Math.min(i / fps, duration));
+
+  const boneNames = [...new Set(Object.values(mixamoVRMRigMap))];
+  const rawNodes = {};
+  boneNames.forEach((name) => {
+    const raw = vrm.humanoid?.getRawBoneNode(name);
+    if (raw) rawNodes[name] = raw;
+  });
+  if (Object.keys(rawNodes).length === 0){
+    throw new Error('No raw humanoid bones found on this VRM — cannot bake.');
+  }
+
+  const quatData = {};
+  const hipsPosData = [];
+  Object.keys(rawNodes).forEach((n) => { quatData[n] = []; });
+
+  const bakeMixer = new THREE.AnimationMixer(vrm.scene);
+  const bakeAction = bakeMixer.clipAction(clip);
+  bakeAction.play();
+
+  const q = new THREE.Quaternion();
+  for (let f = 0; f < frameCount; f++){
+    bakeMixer.setTime(times[f]);
+    vrm.humanoid.update();
+    Object.entries(rawNodes).forEach(([name, node]) => {
+      q.copy(node.quaternion);
+      quatData[name].push(q.x, q.y, q.z, q.w);
+    });
+    if (rawNodes.hips){
+      hipsPosData.push(rawNodes.hips.position.x, rawNodes.hips.position.y, rawNodes.hips.position.z);
+    }
+  }
+
+  bakeMixer.stopAllAction();
+  bakeMixer.uncacheClip(clip);
+
+  const resetMixer = new THREE.AnimationMixer(vrm.scene);
+  const resetAction = resetMixer.clipAction(clip);
+  resetAction.play();
+  resetMixer.setTime(0);
+  vrm.humanoid.update();
+  resetMixer.stopAllAction();
+  resetMixer.uncacheClip(clip);
+
+  const bakedTracks = [];
+  Object.entries(rawNodes).forEach(([name, node]) => {
+    bakedTracks.push(new THREE.QuaternionKeyframeTrack(`${node.name}.quaternion`, times, quatData[name]));
+  });
+  if (rawNodes.hips){
+    bakedTracks.push(new THREE.VectorKeyframeTrack(`${rawNodes.hips.name}.position`, times, hipsPosData));
+  }
+
+  return new THREE.AnimationClip('JarvisAnimation', duration, bakedTrh(err){
         log('FBX POST-PROCESS ERROR: ' + err.message, true);
         URL.revokeObjectURL(url);
       }
