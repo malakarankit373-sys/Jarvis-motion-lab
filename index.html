@@ -1,7 +1,10 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="UTF-8">
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1.0">
+
   <title>Jarvis Motion Lab</title>
 
   <style>
@@ -20,21 +23,376 @@
 
     #ui {
       position: fixed;
+      z-index: 10;
       top: 15px;
       left: 15px;
       right: 15px;
-      z-index: 10;
-      color: white;
-      font-family: Arial, sans-serif;
-      background: rgba(0,0,0,.75);
       padding: 14px;
       border-radius: 14px;
+      background: rgba(0,0,0,.75);
+      color: white;
+      font-family: Arial, sans-serif;
     }
 
     #file {
       width: 100%;
       margin-top: 10px;
     }
+
+    #status {
+      margin-top: 8px;
+      font-size: 13px;
+    }
+  </style>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three":
+        "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+
+      "three/addons/":
+        "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+
+      "@pixiv/three-vrm":
+        "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3/lib/three-vrm.module.js"
+    }
+  }
+  </script>
+</head>
+
+<body>
+
+<div id="ui">
+  <b>🤖 JARVIS Motion Lab</b>
+
+  <input
+    id="file"
+    type="file"
+    accept=".vrm">
+
+  <div id="status">
+    Choose JarvisMale.vrm
+  </div>
+</div>
+
+<script type="module">
+
+import * as THREE from 'three';
+
+import {
+  GLTFLoader
+} from 'three/addons/loaders/GLTFLoader.js';
+
+import {
+  OrbitControls
+} from 'three/addons/controls/OrbitControls.js';
+
+import {
+  VRMLoaderPlugin,
+  VRMUtils
+} from '@pixiv/three-vrm';
+
+
+/* Scene */
+
+const scene = new THREE.Scene();
+
+scene.background =
+  new THREE.Color(0x080b12);
+
+
+/* Camera */
+
+const camera =
+  new THREE.PerspectiveCamera(
+    30,
+    window.innerWidth /
+      window.innerHeight,
+    0.1,
+    20
+  );
+
+camera.position.set(
+  0,
+  1.2,
+  4.5
+);
+
+
+/* Renderer */
+
+const renderer =
+  new THREE.WebGLRenderer({
+    antialias: true
+  });
+
+renderer.setSize(
+  window.innerWidth,
+  window.innerHeight
+);
+
+renderer.setPixelRatio(
+  Math.min(
+    window.devicePixelRatio,
+    2
+  )
+);
+
+renderer.outputColorSpace =
+  THREE.SRGBColorSpace;
+
+document.body.appendChild(
+  renderer.domElement
+);
+
+
+/* Lighting */
+
+const light =
+  new THREE.DirectionalLight(
+    0xffffff,
+    Math.PI
+  );
+
+light.position.set(
+  1,
+  2,
+  1
+);
+
+scene.add(light);
+
+scene.add(
+  new THREE.AmbientLight(
+    0xffffff,
+    1
+  )
+);
+
+
+/* Camera controls */
+
+const controls =
+  new OrbitControls(
+    camera,
+    renderer.domElement
+  );
+
+controls.target.set(
+  0,
+  1.1,
+  0
+);
+
+controls.enableDamping = true;
+controls.enablePan = false;
+controls.update();
+
+
+/* VRM loader */
+
+const loader =
+  new GLTFLoader();
+
+loader.crossOrigin = 'anonymous';
+
+loader.register(
+  (parser) => {
+
+    return new VRMLoaderPlugin(
+      parser
+    );
+
+  }
+);
+
+
+let currentVRM = null;
+
+
+/* File selection */
+
+document
+  .getElementById('file')
+  .addEventListener(
+    'change',
+    async (event) => {
+
+      const file =
+        event.target.files[0];
+
+      if (!file) return;
+
+      const status =
+        document.getElementById(
+          'status'
+        );
+
+      status.textContent =
+        '⏳ Loading JarvisMale...';
+
+      try {
+
+        const url =
+          URL.createObjectURL(
+            file
+          );
+
+        const gltf =
+          await loader.loadAsync(
+            url
+          );
+
+        const vrm =
+          gltf.userData.vrm;
+
+        if (!vrm) {
+
+          throw new Error(
+            'VRM was not detected.'
+          );
+
+        }
+
+
+        /* Performance optimization */
+
+        VRMUtils
+          .removeUnnecessaryVertices(
+            gltf.scene
+          );
+
+        VRMUtils
+          .combineSkeletons(
+            gltf.scene
+          );
+
+        VRMUtils
+          .combineMorphs(
+            vrm
+          );
+
+
+        /* Remove previous model */
+
+        if (currentVRM) {
+
+          scene.remove(
+            currentVRM.scene
+          );
+
+        }
+
+
+        currentVRM = vrm;
+
+        scene.add(
+          currentVRM.scene
+        );
+
+
+        /* VRM faces camera */
+
+        currentVRM.scene.rotation.y =
+          Math.PI;
+
+
+        /* Prevent disappearing parts */
+
+        currentVRM.scene.traverse(
+          (object) => {
+
+            object.frustumCulled =
+              false;
+
+          }
+        );
+
+
+        status.textContent =
+          '✅ JarvisMale loaded!';
+
+        console.log(
+          'VRM:',
+          currentVRM
+        );
+
+      } catch (error) {
+
+        console.error(
+          'VRM ERROR:',
+          error
+        );
+
+        status.textContent =
+          '❌ ' +
+          error.message;
+
+      }
+
+    }
+  );
+
+
+/* Animation loop */
+
+const clock =
+  new THREE.Clock();
+
+function animate() {
+
+  requestAnimationFrame(
+    animate
+  );
+
+  const delta =
+    clock.getDelta();
+
+  if (currentVRM) {
+
+    currentVRM.update(
+      delta
+    );
+
+  }
+
+  controls.update();
+
+  renderer.render(
+    scene,
+    camera
+  );
+
+}
+
+animate();
+
+
+/* Resize */
+
+window.addEventListener(
+  'resize',
+  () => {
+
+    camera.aspect =
+      window.innerWidth /
+      window.innerHeight;
+
+    camera.updateProjectionMatrix();
+
+    renderer.setSize(
+      window.innerWidth,
+      window.innerHeight
+    );
+
+  }
+);
+
+</script>
+
+</body>
+</html>    }
 
     #status {
       margin-top: 8px;
