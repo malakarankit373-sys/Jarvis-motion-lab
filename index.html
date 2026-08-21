@@ -1,670 +1,80 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport"
-        content="width=device-width, initial-scale=1.0">
-
-  <title>Jarvis Motion Lab</title>
-
-  <style>
-    html, body {
-      margin: 0;
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
-      background: #080b12;
-    }
-
-    canvas {
-      display: block;
-      touch-action: none;
-    }
-
-    #ui {
-      position: fixed;
-      z-index: 10;
-      top: 15px;
-      left: 15px;
-      right: 15px;
-      padding: 14px;
-      border-radius: 14px;
-      background: rgba(0,0,0,.75);
-      color: white;
-      font-family: Arial, sans-serif;
-    }
-
-    #file {
-      width: 100%;
-      margin-top: 10px;
-    }
-
-    #status {
-      margin-top: 8px;
-      font-size: 13px;
-    }
-  </style>
-
-  <script type="importmap">
-  {
-    "imports": {
-      "three":
-        "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
-
-      "three/addons/":
-        "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
-
-      "@pixiv/three-vrm":
-        "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3/lib/three-vrm.module.js"
-    }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>JARVIS Motion Lab — Stage 1</title>
+<style>
+  html, body { margin:0; padding:0; overflow:hidden; background:#0a0a0f; height:100%; }
+  #status {
+    position:fixed; top:0; left:0; right:0; z-index:10;
+    color:#00e5ff; font-family:monospace; font-size:13px;
+    background:rgba(0,0,0,0.6); padding:8px 10px;
   }
-  </script>
+</style>
 </head>
-
 <body>
+<div id="status">Booting…</div>
 
-<div id="ui">
-  <b>🤖 JARVIS Motion Lab</b>
-
-  <input
-    id="file"
-    type="file"
-    accept=".vrm">
-
-  <div id="status">
-    Choose JarvisMale.vrm
-  </div>
-</div>
-
-<script type="module">
-
-import * as THREE from 'three';
-
-import {
-  GLTFLoader
-} from 'three/addons/loaders/GLTFLoader.js';
-
-import {
-  OrbitControls
-} from 'three/addons/controls/OrbitControls.js';
-
-import {
-  VRMLoaderPlugin,
-  VRMUtils
-} from '@pixiv/three-vrm';
-
-
-/* Scene */
-
-const scene = new THREE.Scene();
-
-scene.background =
-  new THREE.Color(0x080b12);
-
-
-/* Camera */
-
-const camera =
-  new THREE.PerspectiveCamera(
-    30,
-    window.innerWidth /
-      window.innerHeight,
-    0.1,
-    20
-  );
-
-camera.position.set(
-  0,
-  1.2,
-  4.5
-);
-
-
-/* Renderer */
-
-const renderer =
-  new THREE.WebGLRenderer({
-    antialias: true
-  });
-
-renderer.setSize(
-  window.innerWidth,
-  window.innerHeight
-);
-
-renderer.setPixelRatio(
-  Math.min(
-    window.devicePixelRatio,
-    2
-  )
-);
-
-renderer.outputColorSpace =
-  THREE.SRGBColorSpace;
-
-document.body.appendChild(
-  renderer.domElement
-);
-
-
-/* Lighting */
-
-const light =
-  new THREE.DirectionalLight(
-    0xffffff,
-    Math.PI
-  );
-
-light.position.set(
-  1,
-  2,
-  1
-);
-
-scene.add(light);
-
-scene.add(
-  new THREE.AmbientLight(
-    0xffffff,
-    1
-  )
-);
-
-
-/* Camera controls */
-
-const controls =
-  new OrbitControls(
-    camera,
-    renderer.domElement
-  );
-
-controls.target.set(
-  0,
-  1.1,
-  0
-);
-
-controls.enableDamping = true;
-controls.enablePan = false;
-controls.update();
-
-
-/* VRM loader */
-
-const loader =
-  new GLTFLoader();
-
-loader.crossOrigin = 'anonymous';
-
-loader.register(
-  (parser) => {
-
-    return new VRMLoaderPlugin(
-      parser
-    );
-
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js"
   }
-);
-
-
-let currentVRM = null;
-
-
-/* File selection */
-
-document
-  .getElementById('file')
-  .addEventListener(
-    'change',
-    async (event) => {
-
-      const file =
-        event.target.files[0];
-
-      if (!file) return;
-
-      const status =
-        document.getElementById(
-          'status'
-        );
-
-      status.textContent =
-        '⏳ Loading JarvisMale...';
-
-      try {
-
-        const url =
-          URL.createObjectURL(
-            file
-          );
-
-        const gltf =
-          await loader.loadAsync(
-            url
-          );
-
-        const vrm =
-          gltf.userData.vrm;
-
-        if (!vrm) {
-
-          throw new Error(
-            'VRM was not detected.'
-          );
-
-        }
-
-
-        /* Performance optimization */
-
-        VRMUtils
-          .removeUnnecessaryVertices(
-            gltf.scene
-          );
-
-        VRMUtils
-          .combineSkeletons(
-            gltf.scene
-          );
-
-        VRMUtils
-          .combineMorphs(
-            vrm
-          );
-
-
-        /* Remove previous model */
-
-        if (currentVRM) {
-
-          scene.remove(
-            currentVRM.scene
-          );
-
-        }
-
-
-        currentVRM = vrm;
-
-        scene.add(
-          currentVRM.scene
-        );
-
-
-        /* VRM faces camera */
-
-        currentVRM.scene.rotation.y =
-          Math.PI;
-
-
-        /* Prevent disappearing parts */
-
-        currentVRM.scene.traverse(
-          (object) => {
-
-            object.frustumCulled =
-              false;
-
-          }
-        );
-
-
-        status.textContent =
-          '✅ JarvisMale loaded!';
-
-        console.log(
-          'VRM:',
-          currentVRM
-        );
-
-      } catch (error) {
-
-        console.error(
-          'VRM ERROR:',
-          error
-        );
-
-        status.textContent =
-          '❌ ' +
-          error.message;
-
-      }
-
-    }
-  );
-
-
-/* Animation loop */
-
-const clock =
-  new THREE.Clock();
-
-function animate() {
-
-  requestAnimationFrame(
-    animate
-  );
-
-  const delta =
-    clock.getDelta();
-
-  if (currentVRM) {
-
-    currentVRM.update(
-      delta
-    );
-
-  }
-
-  controls.update();
-
-  renderer.render(
-    scene,
-    camera
-  );
-
 }
-
-animate();
-
-
-/* Resize */
-
-window.addEventListener(
-  'resize',
-  () => {
-
-    camera.aspect =
-      window.innerWidth /
-      window.innerHeight;
-
-    camera.updateProjectionMatrix();
-
-    renderer.setSize(
-      window.innerWidth,
-      window.innerHeight
-    );
-
-  }
-);
-
 </script>
 
-</body>
-</html>    }
-
-    #status {
-      margin-top: 8px;
-      font-size: 13px;
-    }
-  </style>
-</head>
-
-<body>
-
-<div id="ui">
-  <b>🤖 JARVIS Motion Lab</b>
-
-  <input id="file" type="file" accept=".vrm">
-
-  <div id="status">
-    Choose JarvisMale.vrm
-  </div>
-</div>
-
 <script type="module">
+  const statusEl = document.getElementById('status');
+  const log = (msg) => { statusEl.textContent = msg; console.log(msg); };
 
-import * as THREE from
-  "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js";
+  try {
+    const THREE = await import('three');
 
-import { OrbitControls } from
-  "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/controls/OrbitControls.js";
+    log('THREE loaded. Setting up scene…');
 
-import { GLTFLoader } from
-  "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/loaders/GLTFLoader.js";
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0a0a0f);
 
-import {
-  VRMLoaderPlugin
-} from
-  "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.5.5/+esm";
+    const camera = new THREE.PerspectiveCamera(
+      50, window.innerWidth / window.innerHeight, 0.1, 100
+    );
+    camera.position.set(0, 1, 3);
 
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // mobile-friendly cap
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
 
-/* Scene */
+    const light = new THREE.DirectionalLight(0xffffff, 2);
+    light.position.set(2, 3, 2);
+    scene.add(light);
+    scene.add(new THREE.AmbientLight(0x404040, 1.5));
 
-const scene = new THREE.Scene();
+    const geometry = new THREE.BoxGeometry(1, 1, 1);
+    const material = new THREE.MeshStandardMaterial({ color: 0x00e5ff });
+    const cube = new THREE.Mesh(geometry, material);
+    scene.add(cube);
 
-scene.background =
-  new THREE.Color(0x080b12);
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
 
-
-/* Camera */
-
-const camera =
-  new THREE.PerspectiveCamera(
-    35,
-    window.innerWidth /
-      window.innerHeight,
-    0.1,
-    100
-  );
-
-camera.position.set(
-  0,
-  1.4,
-  3
-);
-
-
-/* Renderer */
-
-const renderer =
-  new THREE.WebGLRenderer({
-    antialias: true
-  });
-
-renderer.setPixelRatio(
-  Math.min(
-    window.devicePixelRatio,
-    2
-  )
-);
-
-renderer.setSize(
-  window.innerWidth,
-  window.innerHeight
-);
-
-renderer.outputColorSpace =
-  THREE.SRGBColorSpace;
-
-document.body.appendChild(
-  renderer.domElement
-);
-
-
-/* Lights */
-
-scene.add(
-  new THREE.HemisphereLight(
-    0xffffff,
-    0x222233,
-    2.5
-  )
-);
-
-const light =
-  new THREE.DirectionalLight(
-    0xffffff,
-    2
-  );
-
-light.position.set(
-  2,
-  3,
-  2
-);
-
-scene.add(light);
-
-
-/* Touch rotation */
-
-const controls =
-  new OrbitControls(
-    camera,
-    renderer.domElement
-  );
-
-controls.enableDamping = true;
-controls.enablePan = false;
-
-controls.target.set(
-  0,
-  1.2,
-  0
-);
-
-
-/* VRM loader */
-
-const loader =
-  new GLTFLoader();
-
-loader.register(
-  parser =>
-    new VRMLoaderPlugin(parser)
-);
-
-let currentVRM = null;
-
-
-/* File picker */
-
-document
-  .getElementById("file")
-  .addEventListener(
-    "change",
-    async event => {
-
-      const file =
-        event.target.files[0];
-
-      if (!file) return;
-
-      const status =
-        document.getElementById(
-          "status"
-        );
-
-      status.textContent =
-        "⏳ Loading JarvisMale.vrm...";
-
-      try {
-
-        const url =
-          URL.createObjectURL(file);
-
-        const gltf =
-          await loader.loadAsync(url);
-
-        const vrm =
-          gltf.userData.vrm;
-
-        if (!vrm) {
-          throw new Error(
-            "VRM data was not found."
-          );
-        }
-
-        if (currentVRM) {
-          scene.remove(
-            currentVRM.scene
-          );
-        }
-
-        currentVRM = vrm;
-
-        scene.add(
-          currentVRM.scene
-        );
-
-        currentVRM.scene.rotation.y =
-          Math.PI;
-
-        status.textContent =
-          "✅ JarvisMale loaded!";
-
-        console.log(
-          "VRM loaded:",
-          currentVRM
-        );
-
-      } catch (error) {
-
-        console.error(error);
-
-        status.textContent =
-          "❌ Failed: " +
-          error.message;
-      }
-
+    function animate() {
+      requestAnimationFrame(animate);
+      cube.rotation.x += 0.01;
+      cube.rotation.y += 0.015;
+      renderer.render(scene, camera);
     }
-  );
+    animate();
 
-
-/* Animation loop */
-
-const clock =
-  new THREE.Clock();
-
-function animate() {
-
-  requestAnimationFrame(
-    animate
-  );
-
-  const delta =
-    clock.getDelta();
-
-  if (currentVRM) {
-    currentVRM.update(
-      delta
-    );
+    log('STAGE 1 OK — renderer + cube running.');
+  } catch (err) {
+    log('STAGE 1 ERROR: ' + err.message);
+    console.error(err);
   }
-
-  controls.update();
-
-  renderer.render(
-    scene,
-    camera
-  );
-}
-
-animate();
-
-
-/* Resize */
-
-window.addEventListener(
-  "resize",
-  () => {
-
-    camera.aspect =
-      window.innerWidth /
-      window.innerHeight;
-
-    camera.updateProjectionMatrix();
-
-    renderer.setSize(
-      window.innerWidth,
-      window.innerHeight
-    );
-
-  }
-);
-
 </script>
-
 </body>
 </html>
