@@ -372,13 +372,14 @@ function retargetMixamoToVRM(fbxAsset, vrm){
 
   srcClip.tracks.forEach((track) => {
     const rawName = track.name.split('.')[0].split('/').pop();
-    const property = track.name.split('.')[1];
     const vrmBoneName = mixamoVRMRigMap[rawName];
     if (!vrmBoneName) return;
 
     const vrmBoneNode = vrm.humanoid?.getNormalizedBoneNode(vrmBoneName);
     const mixamoNode = fbxAsset.getObjectByName(rawName);
     if (!vrmBoneNode || !mixamoNode) return;
+
+    const targetName = vrmBoneNode.name;
 
     mixamoNode.getWorldQuaternion(restRotInv).invert();
     mixamoNode.parent.getWorldQuaternion(parentRestRot);
@@ -390,13 +391,12 @@ function retargetMixamoToVRM(fbxAsset, vrm){
         quatTmp.premultiply(parentRestRot).multiply(restRotInv);
         quatTmp.toArray(values, i);
       }
-      // VRM0 models are mirrored 180° on Y vs VRM1; flip X/Z components accordingly
       const finalValues = values.map((v, i) => (isVrm0 && i % 2 === 0 ? -v : v));
-      tracks.push(new THREE.QuaternionKeyframeTrack(`${vrmBoneName}.quaternion`, track.times, finalValues));
+      tracks.push(new THREE.QuaternionKeyframeTrack(`${targetName}.quaternion`, track.times, finalValues));
       matchedTracks++;
     } else if (track instanceof THREE.VectorKeyframeTrack && rawName === 'mixamorigHips'){
       const values = track.values.map((v, i) => (isVrm0 && i % 3 !== 1 ? -v : v) * hipsPosScale);
-      tracks.push(new THREE.VectorKeyframeTrack(`${vrmBoneName}.position`, track.times, values));
+      tracks.push(new THREE.VectorKeyframeTrack(`${targetName}.position`, track.times, values));
       matchedTracks++;
     }
   });
